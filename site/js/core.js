@@ -60,3 +60,8 @@ export function nearest(records, lat, lng, n) {
 export function directionsUrl(rec) {
   return `https://map.kakao.com/link/to/${encodeURIComponent(rec.n)},${rec.lat},${rec.lng}`;
 }
+
+// In an emergency the nearest *usable* toilet matters: closed ones sink below, distance order kept.
+export function orderForList(items) {
+  return [...items.filter((x) => x.status !== "closed"), ...items.filter((x) => x.status === "closed")];
+}

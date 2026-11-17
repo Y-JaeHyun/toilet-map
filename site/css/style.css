@@ -73,3 +73,6 @@ main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .empty { padding: 24px 16px; color: var(--muted); }
 .credit { padding: 6px 16px calc(6px + env(safe-area-inset-bottom)); font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
 .iw { padding: 6px 8px; font-size: 13px; color: #111827; max-width: 220px; }
+.map-error { margin: 0; padding: 24px 16px; color: var(--muted); text-align: center; }
+.no-map .map-wrap { height: auto; min-height: 0; }
+.no-map .locate { position: static; margin: 0 16px 8px auto; display: block; }

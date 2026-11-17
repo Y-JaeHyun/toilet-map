@@ -66,3 +66,15 @@ test("directionsUrl", () => {
   assert.equal(directionsUrl({ n: "쌈지길(지하1층)", lat: 37.5742, lng: 126.9848 }),
     "https://map.kakao.com/link/to/" + encodeURIComponent("쌈지길(지하1층)") + ",37.5742,126.9848");
 });
+
+test("closed toilets go below usable ones, distance order kept within groups", async () => {
+  const { orderForList } = await import("../site/js/core.js");
+  const items = [
+    { rec: { id: "a" }, d: 10, status: "closed" },
+    { rec: { id: "b" }, d: 20, status: "open" },
+    { rec: { id: "c" }, d: 30, status: "unknown" },
+    { rec: { id: "d" }, d: 40, status: "closed" },
+    { rec: { id: "e" }, d: 50, status: "open" },
+  ];
+  assert.deepEqual(orderForList(items).map((x) => x.rec.id), ["b", "c", "e", "a", "d"]);
+});
