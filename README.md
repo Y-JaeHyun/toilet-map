@@ -4,6 +4,7 @@
 
 - 서비스: https://y-jaehyun.github.io/toilet-map/
 - 서버 없음: 데이터는 빌드 시 정적 JSON(`site/data/`)으로 생성해 GitHub Pages로 배포
+- 배포: `site/`를 `gh-pages` 브랜치로 올림 → `git subtree push --prefix site origin gh-pages`
 
 ## 데이터
 
