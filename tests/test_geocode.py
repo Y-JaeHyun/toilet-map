@@ -128,7 +128,7 @@ def test_used_cache_only_keeps_queried_keys():
 def test_normalize_splits_glued_numbers():
     assert normalize("서울특별시 도봉구 노해로379") == "서울특별시 도봉구 노해로 379"
     assert normalize("경기도 수원시 팔달구 일월로22번길23") == "경기도 수원시 팔달구 일월로22번길 23"
-    assert normalize("경기도 고양시 덕양구 화정동994, 화정2동 행정복지센터") == "경기도 고양시 덕양구 화정동 994, 화정2동 행정복지센터"
+    assert normalize("경기도 고양시 덕양구 화정동994, 화정2동 행정복지센터") == "경기도 고양시 덕양구 화정동 994"
     assert normalize("서울특별시 중구 세종대로12길") == "서울특별시 중구 세종대로12길"
 
 
@@ -185,3 +185,16 @@ def test_review_road_string_with_road_core_not_retried_as_parcel():
     f = FakeFetch(lambda p: NF if p["type"] == "road" else ok(126.96, 37.53, "서울특별시 용산구 원효로3가 147")(p))
     assert Geocoder(f, {}).lookup("서울특별시 용산구 원효로 147", "") is None
     assert [c["type"] for c in f.calls] == ["road"]
+
+
+def test_normalize_real_failure_patterns():
+    assert normalize("서울특별시 용산구원효로178") == "서울특별시 용산구 원효로 178"
+    assert normalize("서울특별시 광진구 능동로 17길39") == "서울특별시 광진구 능동로17길 39"
+    assert normalize("서울특별시 노원구 하계동 1번지") == "서울특별시 노원구 하계동 1"
+    assert normalize("경기도 광명시 소하동 298-5번지") == "경기도 광명시 소하동 298-5"
+    assert normalize("서울특별시 양천구 목동중앙로 지하217  (목동)") == "서울특별시 양천구 목동중앙로 217"
+    assert normalize("서울특별시 성동구 옥수동 494-1천") == "서울특별시 성동구 옥수동 494-1"
+    assert normalize("서울특별시 성동구 성수동1가 656-745 뚝섬역") == "서울특별시 성동구 성수동1가 656-745"
+    assert normalize("서울특별시 노원구 월계동 750번지 일대") == "서울특별시 노원구 월계동 750"
+    # dong names with digits must survive
+    assert normalize("서울특별시 용산구 한강로2가 181") == "서울특별시 용산구 한강로2가 181"

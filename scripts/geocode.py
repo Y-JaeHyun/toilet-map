@@ -25,13 +25,16 @@ def has_number(addr):
     return bool(_NUMBER.search(addr or ""))
 
 
-_UNDERGROUND = re.compile(r"지하\s+(\d+(?:-\d+)?)(?=[\s,]|$)")
+_UNDERGROUND = re.compile(r"지하\s*(\d+(?:-\d+)?)(?=[\s,]|$)")
+_BUNJI = re.compile(r"(\d)\s*번지")
+_LOT_SUFFIX = re.compile(r"(\d+-\d+)(?=[가-힣])")  # "494-1천" -> "494-1 천"
+_SPLIT_GIL = re.compile(r"(\S로)\s(\d+(?:번|번안)?길)")  # "능동로 17길39" -> "능동로17길39"
 _GLUED = re.compile(r"(?<=[로길동리가])(\d+(?:-\d+)?)(?=[\s,]|$)")
 # "<road|dong> [산] <number>" core used to check VWorld's refined address
 # "<road|dong> [산] <number>" core used to check VWorld's refined address
 _CORE = re.compile(r"(\S+?(?:로|길|동|리|가))\s(산\s?)?(\d+(?:-\d+)?)(?=[\s,]|$)")
 # "서울특별시 용산구원효로 147": district glued to the road name
-_GLUED_DISTRICT = re.compile(r"((?:^|\s)\S+[시도]\s\S+?[구군시])(\S+[로길])(?=\s)")
+_GLUED_DISTRICT = re.compile(r"((?:^|\s)\S+[시도]\s\S+?[구군시])(\S+[로길])(?=\s|\d)")
 
 
 def normalize(addr):
@@ -39,9 +42,16 @@ def normalize(addr):
     s = re.sub(r"\s+", " ", s).strip()
     # VWorld cannot parse "지하 N" and silently fuzzy-matches another road; the surface number is close
     s = _UNDERGROUND.sub(r"\1", s)
+    s = _BUNJI.sub(r"\1", s)
+    s = _LOT_SUFFIX.sub(r"\1 ", s)
     s = _GLUED_DISTRICT.sub(r"\1 \2", s)
+    s = _SPLIT_GIL.sub(r"\1\2", s)
     s = _GLUED.sub(r" \1", s)
     s = _TAIL.sub("", s).strip(" ,")
+    # drop building / station names after the lot or building number
+    m = _CORE.search(s)
+    if m:
+        s = s[:m.end()]
     return s
 
 
