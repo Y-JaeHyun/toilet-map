@@ -1,22 +1,26 @@
 import { KAKAO_JS_KEY } from "./config.js";
-import { cellsAround, nearest, openStatus, seoulNow, directionsUrl } from "./core.js";
+import { cellsAround, nearest, openStatus, orderForList, seoulNow, directionsUrl } from "./core.js";
 
 const CITY_HALL = { lat: 37.5663, lng: 126.9779 };
 const LIST_N = 30;
 const PIN_N = 60;
+const SDK_TIMEOUT_MS = 8000;
 const STATUS_TEXT = { open: "열림", closed: "닫힘", unknown: "시간 확인 필요" };
 
 const $ = (id) => document.getElementById(id);
 const tiles = new Map(); // "cx_cy" -> Promise<record[]>
 let holidays = { years: [], dates: [] };
-let map, me = null, meDot = null, pins = [], info = null;
+let map = null; // null when the Kakao SDK failed: list-only mode
+let me = null, meDot = null, pins = [], info = null;
 
 function loadSdk() {
   return new Promise((resolve, reject) => {
+    const fail = () => reject(new Error("sdk"));
+    const timer = setTimeout(fail, SDK_TIMEOUT_MS);
     const s = document.createElement("script");
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false`;
-    s.onload = () => window.kakao.maps.load(resolve);
-    s.onerror = () => reject(new Error("지도를 불러오지 못했어요."));
+    s.onload = () => window.kakao.maps.load(() => { clearTimeout(timer); resolve(); });
+    s.onerror = () => { clearTimeout(timer); fail(); };
     document.head.appendChild(s);
   });
 }
@@ -66,6 +70,7 @@ function pinNode(status) {
 }
 
 function showInfo(rec, status) {
+  if (!map) return;
   if (info) info.setMap(null);
   const box = el("div", "iw");
   box.appendChild(el("strong", null, rec.n));
@@ -77,6 +82,7 @@ function showInfo(rec, status) {
 }
 
 function drawPins(items, now) {
+  if (!map) return;
   pins.forEach((p) => p.setMap(null));
   const k = window.kakao.maps;
   pins = items.map(({ rec }) => {
@@ -92,11 +98,13 @@ function renderList(items, now, basisText) {
   const list = $("list");
   list.replaceChildren();
   if (!items.length) {
-    list.appendChild(el("li", "empty", "이 주변엔 등록된 화장실이 없어요. 지도를 옮겨 보세요."));
+    list.appendChild(el("li", "empty", map
+      ? "이 주변엔 등록된 화장실이 없어요. 지도를 옮겨 보세요."
+      : "이 주변엔 등록된 화장실이 없어요."));
     return;
   }
-  for (const { rec, d } of items) {
-    const status = openStatus(rec.h, now, holidays);
+  const ordered = orderForList(items.map((x) => ({ ...x, status: openStatus(x.rec.h, now, holidays) })));
+  for (const { rec, d, status } of ordered) {
     const li = el("li", `item ${status}`);
     li.appendChild(el("div", "name", rec.n));
     li.appendChild(el("div", "dist", fmtDist(d)));
@@ -114,6 +122,7 @@ function renderList(items, now, basisText) {
     go.addEventListener("click", (e) => e.stopPropagation());
     li.appendChild(go);
     li.addEventListener("click", () => {
+      if (!map) return;
       map.panTo(new window.kakao.maps.LatLng(rec.lat, rec.lng));
       showInfo(rec, status);
     });
@@ -121,23 +130,30 @@ function renderList(items, now, basisText) {
   }
 }
 
+function basisLabel() {
+  if (me) return "내 위치에서 가까운 순";
+  return map ? "지도 중심에서 가까운 순" : "서울시청에서 가까운 순";
+}
+
 async function refresh() {
   const now = seoulNow(new Date());
-  const c = map.getCenter();
-  const center = { lat: c.getLat(), lng: c.getLng() };
+  let center = CITY_HALL;
+  if (map) {
+    const c = map.getCenter();
+    center = { lat: c.getLat(), lng: c.getLng() };
+  }
   const origin = me || center;
   const [listRecs, pinRecs] = await Promise.all([
     recordsAround(origin.lat, origin.lng),
-    recordsAround(center.lat, center.lng),
+    map ? recordsAround(center.lat, center.lng) : Promise.resolve([]),
   ]);
-  renderList(nearest(listRecs, origin.lat, origin.lng, LIST_N), now,
-    me ? "내 위치에서 가까운 순" : "지도 중심에서 가까운 순");
+  renderList(nearest(listRecs, origin.lat, origin.lng, LIST_N), now, basisLabel());
   drawPins(nearest(pinRecs, center.lat, center.lng, PIN_N), now);
 }
 
-function setMe(pos) {
+function showMe() {
+  if (!map || !me) return;
   const k = window.kakao.maps;
-  me = { lat: pos.coords.latitude, lng: pos.coords.longitude };
   const ll = new k.LatLng(me.lat, me.lng);
   if (!meDot) {
     const node = el("div");
@@ -147,48 +163,75 @@ function setMe(pos) {
   } else {
     meDot.setPosition(ll);
   }
-  map.setCenter(ll);
-  notice("");
+  map.setCenter(ll); // triggers "idle" -> refresh
 }
 
+// Resolves { pos } or { error: "denied" | "unavailable" | "unsupported" }.
 function locate() {
   return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      notice("이 브라우저는 위치 기능을 지원하지 않아요. 지도를 옮겨 찾아 주세요.");
-      return resolve(false);
-    }
+    if (!navigator.geolocation) return resolve({ error: "unsupported" });
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setMe(pos); resolve(true); },
-      () => {
-        notice("위치 권한이 없어 지도 중심 기준으로 보여 드려요. 지도를 옮겨 찾아 주세요.");
-        resolve(false);
-      },
+      (pos) => resolve({ pos }),
+      (err) => resolve({ error: err.code === 1 ? "denied" : "unavailable" }),
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
     );
   });
 }
 
-async function main() {
-  const metaP = getJson("data/meta.json", null);
-  const holP = getJson("data/holidays.json", holidays);
-  try {
-    await loadSdk();
-  } catch (e) {
-    $("basis").textContent = e.message;
-    return;
+function locateFailedNotice(error) {
+  const where = me ? "마지막으로 확인한 위치" : map ? "지도 중심" : "서울시청 주변";
+  const why = error === "denied" ? "위치 권한이 없어" : "현재 위치를 찾지 못해";
+  return `${why} ${where} 기준으로 보여 드려요.${map ? " 지도를 옮겨 찾아 주세요." : ""}`;
+}
+
+async function applyLocation(result) {
+  if (result.pos) {
+    me = { lat: result.pos.coords.latitude, lng: result.pos.coords.longitude };
+    notice("");
+    showMe();
+  } else {
+    notice(locateFailedNotice(result.error));
   }
-  const k = window.kakao.maps;
-  map = new k.Map($("map"), { center: new k.LatLng(CITY_HALL.lat, CITY_HALL.lng), level: 4 });
-  holidays = await holP;
-  const meta = await metaP;
-  if (meta && meta.baseDate) {
-    $("credit").textContent = `행정안전부 공중화장실정보 (데이터 기준일 ${meta.baseDate}) · 좌표: 국토교통부 브이월드`;
-  }
-  await locate();
   await refresh();
-  k.event.addListener(map, "idle", refresh);
+}
+
+async function main() {
+  // start everything at once: the list must not wait for the map or the GPS fix
+  const locP = locate();
+  const sdkP = loadSdk().then(() => true, () => false);
+  const holP = getJson("data/holidays.json", holidays);
+  getJson("data/meta.json", null).then((meta) => {
+    if (meta && meta.baseDate) {
+      $("credit").textContent = `행정안전부 공중화장실정보 (데이터 기준일 ${meta.baseDate}) · 좌표: 국토교통부 브이월드`;
+    }
+  });
+  holidays = await holP;
+
+  let located = false;
+  locP.then(async (result) => {
+    located = true;
+    await sdkP; // know whether the map exists before drawing "me"
+    await applyLocation(result);
+  });
+
+  if (await sdkP) {
+    const k = window.kakao.maps;
+    const start = me || CITY_HALL;
+    map = new k.Map($("map"), { center: new k.LatLng(start.lat, start.lng), level: 4 });
+    k.event.addListener(map, "idle", refresh);
+  } else {
+    document.body.classList.add("no-map");
+    $("map").replaceChildren(el("p", "map-error", "지도를 불러오지 못했어요. 아래 목록과 길찾기는 쓸 수 있어요."));
+  }
+  if (!located) {
+    $("basis").textContent = "위치를 확인하는 중… 우선 서울시청 주변을 보여 드려요.";
+    await refresh();
+    if (!located) $("basis").textContent = "위치를 확인하는 중… 우선 서울시청 주변을 보여 드려요.";
+  }
+
   $("locate").addEventListener("click", async () => {
-    if (await locate()) refresh();
+    $("basis").textContent = "위치를 확인하는 중…";
+    await applyLocation(await locate());
   });
 }
 
