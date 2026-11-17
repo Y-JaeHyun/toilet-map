@@ -90,8 +90,11 @@ def main(argv=None):
             if i % 500 == 0:
                 geocode.save_cache(CACHE, cache)
                 print(f"  {i}/{len(rows)} matched={len(records)}", flush=True)
-    finally:
+    except BaseException:
         geocode.save_cache(CACHE, cache)
+        raise
+    # completed run: keep only entries this run used (drops stale keys from old normalize rules)
+    geocode.save_cache(CACHE, g.used_cache())
 
     FAILED.parent.mkdir(parents=True, exist_ok=True)
     with open(FAILED, "w", encoding="utf-8", newline="") as f:
