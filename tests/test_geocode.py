@@ -60,3 +60,32 @@ def test_failure_is_cached():
 def test_normalize_keeps_road_names_starting_with_jiha():
     assert normalize("서울특별시 중구 지하상가로 5") == "서울특별시 중구 지하상가로 5"
     assert normalize("서울특별시 중구 을지로 1 지하") == "서울특별시 중구 을지로 1"
+
+
+def test_vworld_fetch_retries_on_remote_disconnect(monkeypatch):
+    import http.client
+    import io
+    import json as _json
+
+    from scripts import geocode as gmod
+
+    calls = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(url, timeout=None):
+        calls.append(url)
+        if len(calls) < 3:
+            raise http.client.RemoteDisconnected("Remote end closed connection without response")
+        return Resp(_json.dumps({"response": {"status": "NOT_FOUND"}}).encode())
+
+    monkeypatch.setenv("VWORLD_KEY", "test")
+    monkeypatch.setattr(gmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(gmod.time, "sleep", lambda s: None)
+    assert gmod.vworld_fetch({"address": "x", "type": "road"})["response"]["status"] == "NOT_FOUND"
+    assert len(calls) == 3

@@ -2,6 +2,7 @@
 
 Only VWorld (MOLIT public API) is used: Kakao Local API results may not be stored.
 """
+import http.client
 import json
 import os
 import pathlib
@@ -65,8 +66,9 @@ def vworld_fetch(params):
          "crs": "epsg:4326", "format": "json", "refine": "true", "simple": "false",
          "key": key, **params}
     url = ENDPOINT + "?" + urllib.parse.urlencode(q)
-    for attempt in range(4):
-        wait = 0.05 - (time.monotonic() - _last_call[0])
+    attempts = 6
+    for attempt in range(attempts):
+        wait = 0.1 - (time.monotonic() - _last_call[0])
         if wait > 0:
             time.sleep(wait)
         _last_call[0] = time.monotonic()
@@ -79,10 +81,11 @@ def vworld_fetch(params):
                 # quota / key errors must stop the run, not be cached as "not found"
                 raise RuntimeError(f"vworld error: {err.get('code')} {err.get('text')}")
             return data
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-            if attempt == 3:
+        # RemoteDisconnected / ConnectionReset are OSError or HTTPException, not URLError
+        except (OSError, http.client.HTTPException, json.JSONDecodeError):
+            if attempt == attempts - 1:
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(min(30, 2 ** attempt))
     raise AssertionError("unreachable")
 
 
