@@ -28,7 +28,10 @@ def has_number(addr):
 _UNDERGROUND = re.compile(r"지하\s+(\d+(?:-\d+)?)(?=[\s,]|$)")
 _GLUED = re.compile(r"(?<=[로길동리가])(\d+(?:-\d+)?)(?=[\s,]|$)")
 # "<road|dong> [산] <number>" core used to check VWorld's refined address
-_CORE = re.compile(r"(\S+?(?:로|길|동|리|가))\s(?:산\s?)?(\d+(?:-\d+)?)(?=[\s,]|$)")
+# "<road|dong> [산] <number>" core used to check VWorld's refined address
+_CORE = re.compile(r"(\S+?(?:로|길|동|리|가))\s(산\s?)?(\d+(?:-\d+)?)(?=[\s,]|$)")
+# "서울특별시 용산구원효로 147": district glued to the road name
+_GLUED_DISTRICT = re.compile(r"((?:^|\s)\S+[시도]\s\S+?[구군시])(\S+[로길])(?=\s)")
 
 
 def normalize(addr):
@@ -36,22 +39,42 @@ def normalize(addr):
     s = re.sub(r"\s+", " ", s).strip()
     # VWorld cannot parse "지하 N" and silently fuzzy-matches another road; the surface number is close
     s = _UNDERGROUND.sub(r"\1", s)
+    s = _GLUED_DISTRICT.sub(r"\1 \2", s)
     s = _GLUED.sub(r" \1", s)
     s = _TAIL.sub("", s).strip(" ,")
     return s
 
 
+def _core(addr):
+    m = _CORE.search(addr or "")
+    return (m.group(1), bool(m.group(2)), m.group(3), m.start()) if m else None
+
+
+def _is_lot_name(name):
+    return name[-1] in "동리가"
+
+
 def matches(query, refined, kind):
-    """True when VWorld's refined address keeps the queried road/lot number."""
-    m = _CORE.search(query)
-    if not m or not refined:
+    """True when VWorld's refined address keeps the queried region and road/lot number."""
+    c = _core(query)
+    if not c or not refined:
         return False
-    name, num = m.group(1), re.escape(m.group(2))
+    name, mountain, num, start = c
     refined = re.sub(r"\s+", " ", refined)
+    tokens = refined.split()
+    for tok in query[:start].split():  # 시/도, 시/군/구 must not change
+        if tok[-1] in "시군구도" and tok not in tokens:
+            return False
+    num = re.escape(num)
     if kind == "road":
+        if _is_lot_name(name):
+            return False
         return re.search(rf"(?:^|\s){re.escape(name)} {num}(?=[\s,(]|$)", refined) is not None
-    # parcel: legal/admin dong names may differ, the lot number must not
-    return re.search(rf"[동리가] (?:산 ?)?{num}(?=[\s,(]|$)", refined) is not None
+    if not _is_lot_name(name):
+        return False
+    # legal/admin dong names may differ; the lot number and 산 flag must not
+    san = "산 ?" if mountain else ""
+    return re.search(rf"[동리가] {san}{num}(?=[\s,(]|$)", refined) is not None
 
 
 class Geocoder:
@@ -85,6 +108,10 @@ class Geocoder:
         for addr, kind in ((road, "road"), (parcel, "parcel"), (road, "parcel")):
             if not (addr or "").strip():
                 continue
+            if addr is road and kind == "parcel":
+                c = _core(normalize(road))
+                if not c or not _is_lot_name(c[0]):  # only a jibun sitting in the road column
+                    continue
             hit = self._query(addr, kind)
             if hit:
                 return hit

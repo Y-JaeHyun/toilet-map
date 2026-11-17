@@ -58,3 +58,10 @@ def test_weekday_and_weekend_differ_is_unknown():
 
 def test_weekday_with_holiday_closed_note():
     assert p("정시", "(평일)09:00-18:00+공휴일, 국경일 미개방") == R("09:00", "18:00", True)
+
+
+def test_review_always_kind_with_unparsed_times_is_unknown():
+    assert p("상시", "정시(09~24시)") == U
+    assert p("상시", "평일(09~20시) 토요일(09~15시)") == U
+    assert p("상시", "05~24시간") == U
+    assert p("상시", ":~:") == A

@@ -70,6 +70,7 @@ def parse_hours(kind, detail):
     parsed = _parse_detail(detail)
     if parsed is not None and parsed is not UNKNOWN:
         return parsed
-    if kind == "상시":
+    # "상시" with an unreadable detail: trust it only when the detail has no times at all (e.g. ":~:")
+    if kind == "상시" and not re.search(r"\d", detail or ""):
         return ALWAYS
     return UNKNOWN

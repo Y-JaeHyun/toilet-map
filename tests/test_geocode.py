@@ -157,3 +157,31 @@ def test_legacy_cache_entries_without_refined_are_requeried():
     g = Geocoder(f, {"road|서울특별시 종로구 인사동길 44": [1.0, 2.0]})
     assert g.lookup("서울특별시 종로구 인사동길 44", "") == (37.57, 126.98)
     assert len(f.calls) == 1
+
+
+def test_review_road_core_never_accepted_as_parcel():
+    from scripts.geocode import matches
+    assert not matches("서울특별시 송파구 오금로 1", "서울특별시 송파구 방이동 1", "parcel")
+
+
+def test_review_mountain_lot_must_match_exactly():
+    from scripts.geocode import matches
+    assert not matches("서울특별시 성동구 행당동 산17", "서울특별시 성동구 행당동 17", "parcel")
+    assert not matches("서울특별시 성동구 행당동 17", "서울특별시 성동구 행당동 산 17", "parcel")
+    assert matches("서울특별시 노원구 중계본동 산 104-12", "서울특별시 노원구 중계동 산 104-12", "parcel")
+
+
+def test_review_sigungu_must_match():
+    from scripts.geocode import matches
+    assert not matches("경기도 수원시 팔달구 중앙로 10", "경기도 안양시 만안구 중앙로 10", "road")
+    assert matches("경기도 수원시 팔달구 중앙로 10", "경기도 수원시 팔달구 중앙로 10 (매산로1가)", "road")
+
+
+def test_review_glued_district_and_road_split():
+    assert normalize("서울특별시 용산구원효로 147") == "서울특별시 용산구 원효로 147"
+
+
+def test_review_road_string_with_road_core_not_retried_as_parcel():
+    f = FakeFetch(lambda p: NF if p["type"] == "road" else ok(126.96, 37.53, "서울특별시 용산구 원효로3가 147")(p))
+    assert Geocoder(f, {}).lookup("서울특별시 용산구 원효로 147", "") is None
+    assert [c["type"] for c in f.calls] == ["road"]
