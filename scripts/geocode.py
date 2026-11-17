@@ -1,0 +1,99 @@
+"""Address -> (lat, lng) via the VWorld geocoder, with a persistent cache.
+
+Only VWorld (MOLIT public API) is used: Kakao Local API results may not be stored.
+"""
+import json
+import os
+import pathlib
+import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+ENDPOINT = "https://api.vworld.kr/req/address"
+
+_PARENS = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+# trailing floor / unit notes: ", 2층", "지하1층", "B1", "1층 101호" ...
+_TAIL = re.compile(r"(,|\s)\s*(지하\s*\d+\s*층|지상\s*\d+\s*층|\d+\s*층|B\d+|\d+\s*호|지하(?=\s|$)).*$")
+
+
+def normalize(addr):
+    s = _PARENS.sub(" ", addr or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    s = _TAIL.sub("", s).strip(" ,")
+    return s
+
+
+class Geocoder:
+    def __init__(self, fetch, cache):
+        self.fetch = fetch
+        self.cache = cache  # "<type>|<normalized address>" -> [lat, lng] | None
+
+    def _query(self, addr, kind):
+        addr = normalize(addr)
+        if not addr:
+            return None
+        key = f"{kind}|{addr}"
+        if key not in self.cache:
+            res = self.fetch({"address": addr, "type": kind})
+            resp = res.get("response", {})
+            if resp.get("status") == "OK":
+                pt = resp["result"]["point"]
+                self.cache[key] = [round(float(pt["y"]), 6), round(float(pt["x"]), 6)]
+            else:
+                self.cache[key] = None
+        hit = self.cache[key]
+        return tuple(hit) if hit else None
+
+    def lookup(self, road, parcel):
+        for addr, kind in ((road, "road"), (parcel, "parcel"), (road, "parcel")):
+            if not (addr or "").strip():
+                continue
+            hit = self._query(addr, kind)
+            if hit:
+                return hit
+        return None
+
+
+_last_call = [0.0]
+
+
+def vworld_fetch(params):
+    key = os.environ["VWORLD_KEY"]
+    q = {"service": "address", "request": "getcoord", "version": "2.0",
+         "crs": "epsg:4326", "format": "json", "refine": "true", "simple": "false",
+         "key": key, **params}
+    url = ENDPOINT + "?" + urllib.parse.urlencode(q)
+    for attempt in range(4):
+        wait = 0.05 - (time.monotonic() - _last_call[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_call[0] = time.monotonic()
+        try:
+            with urllib.request.urlopen(url, timeout=20) as r:
+                data = json.load(r)
+            status = data.get("response", {}).get("status")
+            if status == "ERROR":
+                err = data["response"].get("error", {})
+                # quota / key errors must stop the run, not be cached as "not found"
+                raise RuntimeError(f"vworld error: {err.get('code')} {err.get('text')}")
+            return data
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+            if attempt == 3:
+                raise
+            time.sleep(2 ** attempt)
+    raise AssertionError("unreachable")
+
+
+def load_cache(path):
+    p = pathlib.Path(path)
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def save_cache(path, cache):
+    p = pathlib.Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cache, ensure_ascii=False, sort_keys=True, indent=0), encoding="utf-8")
+    tmp.replace(p)
