@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>가까운 화장실</title>
+  <meta name="description" content="서울·경기 공중화장실을 내 위치에서 가까운 순으로 보여 드려요.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>가까운 화장실</h1>
+    <span class="scope">서울·경기</span>
+  </header>
+  <div id="notice" class="notice" hidden></div>
+  <main>
+    <section class="map-wrap">
+      <div id="map" aria-label="지도"></div>
+      <button id="locate" class="locate" type="button" aria-label="내 위치로">⌖</button>
+    </section>
+    <section class="list-wrap">
+      <p id="basis" class="basis">위치를 확인하는 중…</p>
+      <ol id="list" class="list"></ol>
+    </section>
+  </main>
+  <footer id="credit" class="credit">
+    행정안전부 공중화장실정보 · 좌표: 국토교통부 브이월드
+  </footer>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
